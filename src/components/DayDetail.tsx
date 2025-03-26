@@ -1,0 +1,81 @@
+import React from 'react';
+import { Wind, Droplets, Sun, ArrowLeft } from 'lucide-react';
+import WeatherIcon from './WeatherIcon';
+
+interface DayDetailProps {
+  day: any;
+  onClose: () => void;
+}
+
+const DayDetail: React.FC<DayDetailProps> = ({ day, onClose }) => {
+  const getWeatherIconType = (description = '') => {
+    const desc = (description || '').toLowerCase();
+    if (desc.includes('cloudy')) {
+      return desc.includes('partly') ? 'partly-cloudy' : 'cloudy';
+    } else if (desc.includes('rain')) {
+      return 'rainy';
+    }
+    return 'sunny'; // Default
+  };
+
+  return (
+    <div className="absolute inset-0 bg-[#000] p-8 animate-fade-in">
+      <button 
+        onClick={onClose}
+        className="text-[#cfa94d] hover:text-[#b8923f] transition-colors mb-6 flex items-center gap-2"
+      >
+        <ArrowLeft size={20} />
+        <span>Back to forecast</span>
+      </button>
+
+      <div className="text-center mb-8">
+        <WeatherIcon type={getWeatherIconType(day.description)} className="mx-auto mb-4" />
+        <div className="text-2xl text-[#cfa94d] mb-2 font-playfair">{day.day}</div>
+        <div className="text-6xl font-extralight text-[#f2f0e6] mb-2 temperature">
+          {day.high}° <span className="text-2xl text-[#b8923f]">/ {day.low}°</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="text-center">
+          <Wind className="text-[#cfa94d] mx-auto mb-2" size={24} />
+          <div className="text-sm text-[#aaa]">Wind</div>
+          <div className="text-[#b8923f] h-6 flex items-center justify-center temperature">{day.windSpeed} mph</div>
+        </div>
+        <div className="text-center">
+          <Droplets className="text-[#cfa94d] mx-auto mb-2" size={24} />
+          <div className="text-sm text-[#aaa]">Humidity</div>
+          <div className="text-[#b8923f] h-6 flex items-center justify-center temperature">{day.hourlyDetails[0].humidity}%</div>
+        </div>
+        <div className="text-center">
+          <Sun className="text-[#cfa94d] mx-auto mb-2" size={24} />
+          <div className="text-sm text-[#aaa]">UV Index</div>
+          <div className="text-[#b8923f] h-6 flex items-center justify-center temperature">{day.uvIndex}</div>
+        </div>
+      </div>
+
+      <div className="mb-8">
+        <h3 className="text-lg text-[#cfa94d] mb-4">Hourly Forecast</h3>
+        <div className="space-y-3">
+          {day.hourlyDetails.map((hour: any, index: number) => (
+            <div key={index} className="flex items-center justify-between bg-[#222]/50 rounded-lg p-3">
+              <div className="text-[#f2f0e6] w-16">{hour.hour}</div>
+              <div className="text-[#b8923f] w-12 text-center temperature">{hour.temp}°</div>
+              <div className="text-[#9c7f35] w-12 text-right temperature">{hour.rainChance}%</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-lg text-[#cfa94d] mb-2">Air Quality</h3>
+        <div className="bg-[#222]/50 rounded-lg p-4">
+          <div className="text-2xl text-[#b8923f] mb-1 temperature">{day.airQuality.index}</div>
+          <div className="text-[#f2f0e6]">{day.airQuality.description}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default DayDetail
