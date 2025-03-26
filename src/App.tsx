@@ -15,6 +15,26 @@ function App() {
     parisWeather,
     newYorkWeather,
   ]);
+  
+  // Helper function to convert description strings to icon types
+  const getWeatherIconType = (description: string | undefined = ''): 'sunny' | 'cloudy' | 'rainy' | 'partly-cloudy' | 'thunderstorm' | 'snow' | 'foggy' | 'windy' => {
+    if (!description) return 'partly-cloudy';
+    
+    const desc = description.toLowerCase();
+    
+    if (desc === 'sunny' || desc === 'clear') return 'sunny';
+    if (desc === 'partly-cloudy' || desc.includes('partly')) return 'partly-cloudy';
+    if (desc === 'cloudy' || desc.includes('cloud')) return 'cloudy';
+    if (desc === 'rainy' || desc.includes('rain') || desc.includes('drizzle')) return 'rainy';
+    if (desc === 'thunderstorm' || desc.includes('thunder') || desc.includes('storm')) return 'thunderstorm';
+    if (desc === 'snow' || desc.includes('snow') || desc.includes('ice') || desc.includes('sleet')) return 'snow';
+    if (desc === 'foggy' || desc.includes('fog') || desc.includes('mist')) return 'foggy';
+    if (desc === 'windy' || desc.includes('wind')) return 'windy';
+    
+    // Default fallback
+    return 'partly-cloudy';
+  };
+  
   const [selectedCity, setSelectedCity] = useState<number>(0);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -540,7 +560,7 @@ function App() {
 
                 <div className="mb-8 flex items-center justify-center">
                   <div className="mr-4">
-                    <WeatherIcon type={currentCity.description as any} size="large" />
+                    <WeatherIcon type={getWeatherIconType(currentCity.description)} size="large" />
                   </div>
                   <div className="text-[#f2f0e6] temperature text-7xl font-playfair">{currentCity.temperature}°</div>
                 </div>
@@ -561,7 +581,7 @@ function App() {
                     <div key={index} className="text-center">
                       <div className="text-[#888] text-xs mb-1">{hour.hour}</div>
                       <div className="flex justify-center mb-1">
-                        <WeatherIcon type={hour.description as any || currentCity.description as any} size="small" />
+                        <WeatherIcon type={getWeatherIconType(hour.description)} size="small" />
                       </div>
                       <div className="text-[#f2f0e6] temperature text-sm">{hour.temp}°</div>
                     </div>
@@ -601,7 +621,7 @@ function App() {
                   >
                     <div className="text-[#f2f0e6] font-medium text-left w-24">{day.day}</div>
                     <div className="flex justify-center w-10">
-                      <WeatherIcon type={day.description as any || currentCity.description as any} size="small" />
+                      <WeatherIcon type={getWeatherIconType(day.description)} size="small" />
                     </div>
                     
                     {/* Show LLM-generated insight if available */}

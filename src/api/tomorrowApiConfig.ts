@@ -154,28 +154,39 @@ export const mapWeatherCodeToIcon = (weatherCode: number): 'sunny' | 'cloudy' | 
   if (weatherCode === 1000) return 'sunny';
   
   // Partly Cloudy
-  if (weatherCode === 1100) return 'partly-cloudy';
-  if (weatherCode === 1101) return 'partly-cloudy';
-  if (weatherCode === 1102) return 'partly-cloudy';
+  if ([1100, 1101, 1102].includes(weatherCode)) return 'partly-cloudy';
   
   // Cloudy
   if ([1001, 1103].includes(weatherCode)) return 'cloudy';
   
-  // Rain
-  if ([4000, 4001, 4200, 4201].includes(weatherCode)) return 'rainy';
+  // Rain (includes drizzle, rain, freezing rain)
+  if ([4000, 4001, 4200, 4201, 4203, 4204, 4205, 4213, 4214, 4215].includes(weatherCode)) return 'rainy';
   
-  // Snow
-  if ([5000, 5001, 5100, 5101].includes(weatherCode)) return 'snow';
+  // Snow (all forms of snow and mixed precipitation)
+  if ([5000, 5001, 5100, 5101, 5103, 5104, 5105, 5106, 5107, 5115, 5116, 5117].includes(weatherCode)) return 'snow';
   
   // Thunderstorm
-  if ([8000].includes(weatherCode)) return 'thunderstorm';
+  if ([8000, 8001, 8003].includes(weatherCode)) return 'thunderstorm';
   
-  // Foggy
+  // Foggy (fog, mist)
   if ([2000, 2100].includes(weatherCode)) return 'foggy';
   
-  // Windy (many codes can be considered windy, so we should check wind speed separately)
-  // For now use a reasonable fallback
-  return 'sunny';
+  // Windy (high winds)
+  if ([6000, 6001, 6002, 6003, 6004, 7102].includes(weatherCode)) return 'windy';
+  
+  // Default fallback - check for additional conditions
+  
+  // If the code is in the precipitation range but not covered above, default to rainy
+  if (weatherCode >= 4000 && weatherCode < 5000) return 'rainy';
+  
+  // If the code is in the snow/ice range but not covered above, default to snow
+  if (weatherCode >= 5000 && weatherCode < 6000) return 'snow';
+  
+  // If the code is in the wind range but not covered above, default to windy
+  if (weatherCode >= 6000 && weatherCode < 7000) return 'windy';
+  
+  // For any other code, default to partly-cloudy as a safe middle ground
+  return 'partly-cloudy';
 };
 
 /**
@@ -367,14 +378,35 @@ export const fetchWeatherForCity = async (cityName: string): Promise<WeatherData
       'tokyo': {lat: 35.6762, lon: 139.6503},
       'sydney': {lat: -33.8688, lon: 151.2093},
       'las vegas': {lat: 36.1699, lon: -115.1398},
-      'philadelphia': {lat: 39.9526, lon: -75.1652}
+      'philadelphia': {lat: 39.9526, lon: -75.1652},
+      'easton': {lat: 40.6918, lon: -75.2207}, // Easton, PA coordinates
+      'boston': {lat: 42.3601, lon: -71.0589},
+      'los angeles': {lat: 34.0522, lon: -118.2437},
+      'austin': {lat: 30.2672, lon: -97.7431},
+      'portland': {lat: 45.5152, lon: -122.6784},
+      'atlanta': {lat: 33.7490, lon: -84.3880},
+      'houston': {lat: 29.7604, lon: -95.3698},
+      'dallas': {lat: 32.7767, lon: -96.7970}
     };
     
     // Find city coordinates or use a default
     const lowerCityName = cityName.toLowerCase();
-    const coords = cityCoords[lowerCityName] || {lat: 40.7128, lon: -74.0060}; // Default to NYC
+    
+    let coords;
+    if (cityCoords[lowerCityName]) {
+      coords = cityCoords[lowerCityName];
+    } else {
+      // Use New York coordinates but preserve the original city name
+      console.log(`City "${cityName}" not found in coordinates database, using approximate location`);
+      coords = {lat: 40.7128, lon: -74.0060}; // Default to NYC coordinates
+    }
     
     const weatherData = await fetchWeatherForCoords(coords.lat, coords.lon, cityName);
+    
+    // Make sure the city name is preserved
+    if (weatherData.city !== cityName) {
+      weatherData.city = cityName;
+    }
     
     // Store in cache with city name as key
     WEATHER_CACHE.set(cacheKey, {

@@ -8,14 +8,21 @@ interface DayDetailProps {
 }
 
 const DayDetail: React.FC<DayDetailProps> = ({ day, onClose }) => {
-  const getWeatherIconType = (description = '') => {
-    const desc = (description || '').toLowerCase();
-    if (desc.includes('cloudy')) {
-      return desc.includes('partly') ? 'partly-cloudy' : 'cloudy';
-    } else if (desc.includes('rain')) {
-      return 'rainy';
-    }
-    return 'sunny'; // Default
+  // More comprehensive mapping of weather descriptions to icon types
+  const getWeatherIconType = (description: string = ''): 'sunny' | 'cloudy' | 'rainy' | 'partly-cloudy' | 'thunderstorm' | 'snow' | 'foggy' | 'windy' => {
+    const desc = description.toLowerCase();
+    
+    if (desc === 'sunny' || desc === 'clear') return 'sunny';
+    if (desc === 'partly-cloudy' || desc.includes('partly')) return 'partly-cloudy';
+    if (desc === 'cloudy' || desc.includes('cloud')) return 'cloudy';
+    if (desc === 'rainy' || desc.includes('rain') || desc.includes('drizzle')) return 'rainy';
+    if (desc === 'thunderstorm' || desc.includes('thunder') || desc.includes('storm')) return 'thunderstorm';
+    if (desc === 'snow' || desc.includes('snow') || desc.includes('ice') || desc.includes('sleet')) return 'snow';
+    if (desc === 'foggy' || desc.includes('fog') || desc.includes('mist')) return 'foggy';
+    if (desc === 'windy' || desc.includes('wind')) return 'windy';
+    
+    // Default to partly-cloudy as a safe fallback
+    return 'partly-cloudy';
   };
 
   return (
