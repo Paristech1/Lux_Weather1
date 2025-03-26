@@ -16,5 +16,16 @@ export default defineConfig({
     },
     host: true,
     strictPort: true,
+    proxy: {
+      '/api/tomorrow': {
+        target: 'https://api.tomorrow.io/v4',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/tomorrow/, '')
+      }
+    }
   },
+  define: {
+    // Make sure environment variables are properly stringified
+    'process.env': {}
+  }
 });

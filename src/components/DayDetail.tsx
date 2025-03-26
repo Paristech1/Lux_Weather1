@@ -1,5 +1,5 @@
 import React from 'react';
-import { Wind, Droplets, Sun, ArrowLeft } from 'lucide-react';
+import { Wind, Droplets, Sun, ArrowLeft, Lightbulb } from 'lucide-react';
 import WeatherIcon from './WeatherIcon';
 
 interface DayDetailProps {
@@ -34,6 +34,14 @@ const DayDetail: React.FC<DayDetailProps> = ({ day, onClose }) => {
         <div className="text-6xl font-extralight text-[#f2f0e6] mb-2 temperature">
           {day.high}° <span className="text-2xl text-[#b8923f]">/ {day.low}°</span>
         </div>
+        
+        {/* Display AI-generated insight if available */}
+        {day.insight && (
+          <div className="flex items-center justify-center mt-4 mb-2 text-[#b8923f]">
+            <Lightbulb size={16} className="mr-2" />
+            <p className="text-sm italic">{day.insight}</p>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-3 gap-4 mb-8">
