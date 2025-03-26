@@ -1,12 +1,19 @@
 import React, { useState, useRef, TouchEvent, useEffect } from 'react';
-import { weatherData } from './data';
+import { weatherData, parisWeather, newYorkWeather, miamiWeather, denverWeather, chicagoWeather, sanFranciscoWeather } from './data';
 import WeatherIcon from './components/WeatherIcon';
 import DayDetail from './components/DayDetail';
 import { MapPin, Plus, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { WeatherData } from './types';
 
 function App() {
-  const [cities, setCities] = useState<WeatherData[]>([weatherData]);
+  const [cities, setCities] = useState<WeatherData[]>([
+    parisWeather,
+    newYorkWeather,
+    miamiWeather,
+    denverWeather,
+    chicagoWeather,
+    sanFranciscoWeather
+  ]);
   const [selectedCity, setSelectedCity] = useState<number>(0);
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const touchStartX = useRef<number | null>(null);
@@ -18,22 +25,46 @@ function App() {
 
   // Sample cities for demonstration
   const availableCities = [
-    { name: "New York", temp: 72 },
-    { name: "Los Angeles", temp: 78 },
-    { name: "Chicago", temp: 65 },
-    { name: "Miami", temp: 83 },
-    { name: "Seattle", temp: 61 },
-    { name: "Denver", temp: 69 },
+    { name: "New York", temp: 58 },
+    { name: "Miami", temp: 89 },
+    { name: "Denver", temp: 32 },
+    { name: "Chicago", temp: 55 },
+    { name: "San Francisco", temp: 60 },
+    { name: "Seattle", temp: 52 },
   ];
 
   const addCity = (cityName: string, temp: number) => {
-    const newCity = {
-      ...weatherData,
-      city: cityName,
-      temperature: temp,
-    };
-    setCities([...cities, newCity]);
-    setSelectedCity(cities.length);
+    let newCity: WeatherData;
+    
+    // Use existing weather data if available
+    if (cityName === "New York") {
+      newCity = newYorkWeather;
+    } else if (cityName === "Miami") {
+      newCity = miamiWeather;
+    } else if (cityName === "Denver") {
+      newCity = denverWeather;
+    } else if (cityName === "Chicago") {
+      newCity = chicagoWeather;
+    } else if (cityName === "San Francisco") {
+      newCity = sanFranciscoWeather;
+    } else {
+      // Fallback to creating a new city with the same structure as Paris
+      newCity = {
+        ...parisWeather,
+        city: cityName,
+        temperature: temp,
+      };
+    }
+    
+    // Check if the city is already in the list
+    const existingCityIndex = cities.findIndex(city => city.city === cityName);
+    if (existingCityIndex >= 0) {
+      setSelectedCity(existingCityIndex);
+    } else {
+      setCities([...cities, newCity]);
+      setSelectedCity(cities.length);
+    }
+    
     setShowCityDropdown(false);
   };
 
@@ -230,7 +261,15 @@ function App() {
                         : 'cloudy'
                       : currentCity.description.toLowerCase().includes('rain')
                         ? 'rainy'
-                        : 'sunny'
+                        : currentCity.description.toLowerCase().includes('snow')
+                          ? 'snow'
+                          : currentCity.description.toLowerCase().includes('thunder')
+                            ? 'thunderstorm'
+                            : currentCity.description.toLowerCase().includes('fog')
+                              ? 'foggy'
+                              : currentCity.description.toLowerCase().includes('wind')
+                                ? 'windy'
+                                : 'sunny'
                   } 
                   className="mx-auto mb-6" 
                 />
@@ -256,6 +295,19 @@ function App() {
                 {currentCity.hourlyForecast.map((hour, index) => (
                   <div key={index} className="text-center w-12">
                     <div className="text-sm text-[#aaa] mb-1">{hour.hour}</div>
+                    <WeatherIcon 
+                      type={
+                        hour.description?.toLowerCase().includes('cloudy')
+                          ? hour.description.toLowerCase().includes('partly')
+                            ? 'partly-cloudy'
+                            : 'cloudy'
+                          : hour.description?.toLowerCase().includes('rain')
+                            ? 'rainy'
+                            : 'sunny'
+                      }
+                      className="mx-auto mb-1" 
+                      size="small" 
+                    />
                     <div className="text-[#b8923f] w-full text-center temperature">{hour.temp}°</div>
                   </div>
                 ))}
@@ -271,10 +323,25 @@ function App() {
                 {currentCity.tenDayForecast.map((day, index) => (
                   <button
                     key={index}
-                    className="w-full flex justify-between py-2 border-b border-[#333]/30 last:border-0 hover:bg-[#222]/30 transition-colors rounded px-2"
+                    className="w-full flex justify-between items-center py-2 border-b border-[#333]/30 last:border-0 hover:bg-[#222]/30 transition-colors rounded px-2"
                     onClick={() => setSelectedDay(index)}
                   >
                     <div className="text-[#f2f0e6] w-24 text-left">{day.day}</div>
+                    <div className="flex items-center flex-grow justify-center">
+                      <WeatherIcon
+                        type={
+                          day.description?.toLowerCase().includes('cloudy')
+                            ? day.description.toLowerCase().includes('partly')
+                              ? 'partly-cloudy'
+                              : 'cloudy'
+                            : day.description?.toLowerCase().includes('rain')
+                              ? 'rainy'
+                              : 'sunny'
+                        }
+                        className="mr-2"
+                        size="small"
+                      />
+                    </div>
                     <div className="text-[#b8923f] w-20 text-right temperature">
                       {day.high}° / {day.low}°
                     </div>

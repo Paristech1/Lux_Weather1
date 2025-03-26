@@ -5,6 +5,7 @@ export interface WeatherData {
   hourlyForecast: {
     hour: string;
     temp: number;
+    description?: string;
   }[];
   tenDayForecast: {
     day: string;
@@ -28,6 +29,7 @@ export interface WeatherData {
 }
 
 export interface WeatherIconProps {
-  type: 'sunny' | 'cloudy' | 'rainy' | 'partly-cloudy';
+  type: 'sunny' | 'cloudy' | 'rainy' | 'partly-cloudy' | 'thunderstorm' | 'snow' | 'foggy' | 'windy';
   className?: string;
+  size?: 'large' | 'small';
 }
