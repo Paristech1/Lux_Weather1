@@ -7,26 +7,51 @@
 
 import { WeatherData } from '../types';
 
-// API usage tracking
+// Enhanced API usage tracking with more detailed metrics
 export const API_USAGE = {
-  // Total calls allowed per hour
+  // Total calls allowed per day with Tomorrow.io base plan
+  DAILY_LIMIT: 1000,
+  // Self-imposed hourly limit to avoid hitting daily limits too quickly
   HOURLY_LIMIT: 25,
   // Current call count in this hour
   callCount: 0,
-  // Timestamp of the last reset
-  lastReset: Date.now(),
+  // Daily call count tracking
+  dailyCallCount: 0,
+  // Timestamp of the last hourly reset
+  lastHourlyReset: Date.now(),
+  // Timestamp of the last daily reset
+  lastDailyReset: Date.now(),
   // Whether we need to show API limit warning to user
-  showLimitWarning: false
+  showLimitWarning: false,
+  // Track API calls by endpoint type
+  callsByType: {
+    current: 0,
+    forecast: 0,
+    airQuality: 0
+  },
+  // Track API calls by city (for analytics)
+  callsByCity: {} as Record<string, number>
 };
 
-// Cache for weather data to reduce API calls
+// Enhanced cache with TTL and prioritization
 export const WEATHER_CACHE = new Map<string, {
   data: WeatherData,
-  timestamp: number
+  timestamp: number,
+  accessCount: number,  // Track how often this city is accessed
+  lastAccessed: number  // Track when this city was last accessed
 }>();
 
-// Cache duration in milliseconds (30 minutes)
-export const CACHE_DURATION = 30 * 60 * 1000;
+// Cache durations in milliseconds
+export const CACHE_CONFIG = {
+  // Regular cache duration (30 minutes)
+  STANDARD_DURATION: 30 * 60 * 1000,
+  // Extended cache duration for less-changing data (1 hour)
+  EXTENDED_DURATION: 60 * 60 * 1000,
+  // Maximum cache size (number of cities)
+  MAX_CACHE_SIZE: 10,
+  // Refresh threshold - when cache is this old, try to refresh it in background
+  REFRESH_THRESHOLD: 20 * 60 * 1000
+};
 
 // API configuration
 export const API_CONFIG = {
@@ -54,12 +79,28 @@ export interface TimelineParams {
 export const checkAndResetApiCounter = (): void => {
   const now = Date.now();
   const oneHour = 60 * 60 * 1000;
+  const oneDay = 24 * 60 * 60 * 1000;
   
-  if (now - API_USAGE.lastReset >= oneHour) {
-    console.log('Resetting API call counter (new hour)');
+  // Reset hourly counter if needed
+  if (now - API_USAGE.lastHourlyReset >= oneHour) {
+    console.log('Resetting hourly API call counter');
     API_USAGE.callCount = 0;
-    API_USAGE.lastReset = now;
+    API_USAGE.lastHourlyReset = now;
     API_USAGE.showLimitWarning = false;
+  }
+  
+  // Reset daily counter if needed
+  if (now - API_USAGE.lastDailyReset >= oneDay) {
+    console.log('Resetting daily API call counter');
+    API_USAGE.dailyCallCount = 0;
+    API_USAGE.lastDailyReset = now;
+    
+    // Also reset call type tracking
+    API_USAGE.callsByType = {
+      current: 0,
+      forecast: 0,
+      airQuality: 0
+    };
   }
 };
 
@@ -72,11 +113,19 @@ export const getRemainingApiCalls = (): number => {
 };
 
 /**
+ * Gets remaining API calls for today
+ */
+export const getRemainingDailyApiCalls = (): number => {
+  checkAndResetApiCounter();
+  return API_USAGE.DAILY_LIMIT - API_USAGE.dailyCallCount;
+};
+
+/**
  * Checks if we're approaching the API limit
  */
 export const isNearApiLimit = (): boolean => {
   checkAndResetApiCounter();
-  return getRemainingApiCalls() <= 5; // Warning when 5 or fewer calls remain
+  return getRemainingApiCalls() <= 5 || getRemainingDailyApiCalls() <= 50;
 };
 
 /**
@@ -84,7 +133,60 @@ export const isNearApiLimit = (): boolean => {
  */
 export const hasReachedApiLimit = (): boolean => {
   checkAndResetApiCounter();
-  return getRemainingApiCalls() <= 0;
+  return getRemainingApiCalls() <= 0 || getRemainingDailyApiCalls() <= 0;
+};
+
+/**
+ * Manages the cache size by removing least recently used entries
+ * when the cache exceeds MAX_CACHE_SIZE
+ */
+export const manageCacheSize = (): void => {
+  if (WEATHER_CACHE.size <= CACHE_CONFIG.MAX_CACHE_SIZE) return;
+  
+  // Convert cache entries to array for sorting
+  const entries = Array.from(WEATHER_CACHE.entries());
+  
+  // Sort by last accessed (oldest first)
+  entries.sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
+  
+  // Remove oldest entries until we're under the limit
+  while (entries.length > CACHE_CONFIG.MAX_CACHE_SIZE) {
+    const [key] = entries.shift() || [''];
+    if (key) {
+      WEATHER_CACHE.delete(key);
+      console.log(`Cache pruning: removed ${key} from cache`);
+    }
+  }
+};
+
+/**
+ * Gets cached weather data if available and not expired
+ * @param cityName City name to lookup
+ * @param maxAge Maximum age of cache in ms (defaults to standard duration)
+ * @returns WeatherData or null if not found or expired
+ */
+export const getCachedWeatherData = (
+  cityName: string, 
+  maxAge: number = CACHE_CONFIG.STANDARD_DURATION
+): WeatherData | null => {
+  const cacheKey = cityName.toLowerCase();
+  const cacheEntry = WEATHER_CACHE.get(cacheKey);
+  
+  if (!cacheEntry) return null;
+  
+  const now = Date.now();
+  
+  // Update access stats even if we return null
+  cacheEntry.accessCount += 1;
+  cacheEntry.lastAccessed = now;
+  WEATHER_CACHE.set(cacheKey, cacheEntry);
+  
+  // Check if cache is expired
+  if (now - cacheEntry.timestamp > maxAge) {
+    return null;
+  }
+  
+  return cacheEntry.data;
 };
 
 /**
@@ -96,11 +198,16 @@ export const fetchWeatherTimeline = async (params: TimelineParams) => {
   // Check if we need to reset the counter
   checkAndResetApiCounter();
   
+  // Extract city name from location for logging
+  const cityName = typeof params.location === 'string' 
+    ? params.location 
+    : 'unknown location';
+  
   // Check if we've reached the API limit
   if (hasReachedApiLimit()) {
     API_USAGE.showLimitWarning = true;
     throw new Error('API limit reached. Try again in ' + 
-      Math.ceil((API_USAGE.lastReset + 60 * 60 * 1000 - Date.now()) / 60000) + 
+      Math.ceil((API_USAGE.lastHourlyReset + 60 * 60 * 1000 - Date.now()) / 60000) + 
       ' minutes or use cached data.');
   }
   
@@ -133,9 +240,21 @@ export const fetchWeatherTimeline = async (params: TimelineParams) => {
       throw new Error(`API Error: ${response.status} - ${errorData?.message || response.statusText}`);
     }
     
-    // Increment the call counter on successful API call
+    // Increment all counters on successful API call
     API_USAGE.callCount++;
-    console.log(`API Call #${API_USAGE.callCount} of ${API_USAGE.HOURLY_LIMIT} this hour`);
+    API_USAGE.dailyCallCount++;
+    
+    // Track call by type based on timesteps
+    if (params.timesteps.includes('1h')) {
+      API_USAGE.callsByType.forecast++;
+    } else {
+      API_USAGE.callsByType.current++;
+    }
+    
+    // Track calls by city
+    API_USAGE.callsByCity[cityName] = (API_USAGE.callsByCity[cityName] || 0) + 1;
+    
+    console.log(`API Call #${API_USAGE.callCount} of ${API_USAGE.HOURLY_LIMIT} this hour (${API_USAGE.dailyCallCount} today)`);
     
     return await response.json();
   } catch (error) {
@@ -300,20 +419,73 @@ export const transformTomorrowData = (data: any, cityName: string): WeatherData 
 };
 
 /**
- * Main Function to Fetch Weather Data for coordinates
+ * Fetches weather for coordinates, with enhanced caching and error handling
  */
 export const fetchWeatherForCoords = async (lat: number, lon: number, cityName: string): Promise<WeatherData> => {
-  // Create a cache key based on coordinates
-  const cacheKey = `${lat},${lon}`;
+  // Normalize city name for caching
+  const cacheKey = cityName.toLowerCase();
   
-  // Check if we have cached data
-  const cachedData = WEATHER_CACHE.get(cacheKey);
-  const now = Date.now();
+  // Try to get from cache first
+  const cachedData = getCachedWeatherData(cacheKey);
+  if (cachedData) {
+    console.log(`Using cached data for ${cityName} (cached ${Math.floor((Date.now() - WEATHER_CACHE.get(cacheKey)?.timestamp!) / 60000)} minutes ago)`);
+    
+    // If cache is approaching refresh threshold, trigger background refresh
+    const cacheAge = Date.now() - (WEATHER_CACHE.get(cacheKey)?.timestamp || 0);
+    if (cacheAge > CACHE_CONFIG.REFRESH_THRESHOLD) {
+      console.log(`Cache for ${cityName} is getting stale, refreshing in background`);
+      setTimeout(() => {
+        refreshWeatherDataInBackground(lat, lon, cityName)
+          .catch(e => console.error(`Background refresh failed for ${cityName}:`, e));
+      }, 100);
+    }
+    
+    return cachedData;
+  }
   
-  // If we have valid cached data, use it
-  if (cachedData && (now - cachedData.timestamp < CACHE_DURATION)) {
-    console.log(`Using cached weather data for ${cityName} (${Math.round((now - cachedData.timestamp) / 60000)} minutes old)`);
-    return cachedData.data;
+  // If not in cache, fetch from API
+  try {
+    const params: TimelineParams = {
+      location: `${lat},${lon}`,
+      fields: [
+        'temperature', 'temperatureApparent', 'temperatureMin', 'temperatureMax',
+        'windSpeed', 'windDirection', 'humidity', 'precipitationProbability',
+        'precipitationType', 'weatherCode', 'sunriseTime', 'sunsetTime',
+        'visibility', 'moonPhase', 'uvIndex'
+      ],
+      timesteps: ['current', '1h', '1d'],
+      units: API_CONFIG.UNITS
+    };
+    
+    const data = await fetchWeatherTimeline(params);
+    const weatherData = transformTomorrowData(data, cityName);
+    
+    // Add to cache
+    WEATHER_CACHE.set(cacheKey, {
+      data: weatherData,
+      timestamp: Date.now(),
+      accessCount: 1,
+      lastAccessed: Date.now()
+    });
+    
+    // Manage cache size
+    manageCacheSize();
+    
+    return weatherData;
+  } catch (error) {
+    console.error(`Error fetching weather for ${cityName}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Background refresh function to update cache without blocking UI
+ */
+async function refreshWeatherDataInBackground(lat: number, lon: number, cityName: string): Promise<void> {
+  // Only proceed if we're not near API limits
+  if (isNearApiLimit()) {
+    console.log(`Skipping background refresh for ${cityName} due to API limit concerns`);
+    return;
   }
   
   try {
@@ -322,35 +494,40 @@ export const fetchWeatherForCoords = async (lat: number, lon: number, cityName: 
       fields: [
         'temperature', 'temperatureApparent', 'temperatureMin', 'temperatureMax',
         'windSpeed', 'windDirection', 'humidity', 'precipitationProbability',
-        'precipitationIntensity', 'weatherCode', 'uvIndex', 'visibility',
-        'cloudCover', 'pressureSurfaceLevel'
+        'precipitationType', 'weatherCode', 'sunriseTime', 'sunsetTime',
+        'visibility', 'moonPhase', 'uvIndex'
       ],
-      timesteps: ['1h', '1d'],
+      timesteps: ['current', '1h', '1d'],
       units: API_CONFIG.UNITS
     };
     
     const data = await fetchWeatherTimeline(params);
     const weatherData = transformTomorrowData(data, cityName);
     
-    // Store in cache
-    WEATHER_CACHE.set(cacheKey, {
-      data: weatherData,
-      timestamp: now
-    });
+    // Update cache
+    const cacheKey = cityName.toLowerCase();
+    const existingEntry = WEATHER_CACHE.get(cacheKey);
     
-    return weatherData;
+    if (existingEntry) {
+      WEATHER_CACHE.set(cacheKey, {
+        data: weatherData,
+        timestamp: Date.now(),
+        accessCount: existingEntry.accessCount + 1,
+        lastAccessed: Date.now()
+      });
+      console.log(`Background refresh completed for ${cityName}`);
+    }
   } catch (error) {
-    console.error(`Error fetching weather data for coordinates ${lat},${lon}:`, error);
-    throw error;
+    console.error(`Background refresh error for ${cityName}:`, error);
+    // We don't rethrow in background processes
   }
-};
+}
 
 /**
- * Function to Fetch Weather Data for a city name
- * Note: Tomorrow.io API uses coordinates primarily, so we need to convert city names to coords
+ * Fetches weather for city name, with enhanced caching and error handling 
  */
 export const fetchWeatherForCity = async (cityName: string): Promise<WeatherData> => {
-  // Create a cache key
+  // Create a cache key based on city name
   const cacheKey = cityName.toLowerCase();
   
   // Check if we have cached data
@@ -358,65 +535,40 @@ export const fetchWeatherForCity = async (cityName: string): Promise<WeatherData
   const now = Date.now();
   
   // If we have valid cached data, use it
-  if (cachedData && (now - cachedData.timestamp < CACHE_DURATION)) {
+  if (cachedData && (now - cachedData.timestamp < CACHE_CONFIG.STANDARD_DURATION)) {
     console.log(`Using cached weather data for ${cityName} (${Math.round((now - cachedData.timestamp) / 60000)} minutes old)`);
+    
+    // Update access stats
+    WEATHER_CACHE.set(cacheKey, {
+      data: cachedData.data,
+      timestamp: cachedData.timestamp,
+      accessCount: (cachedData.accessCount || 0) + 1,
+      lastAccessed: now
+    });
+    
     return cachedData.data;
   }
   
+  // Not in cache or expired, geocode the city name first
   try {
-    // For simplicity, using hardcoded coordinates for common cities
-    // In a real app, you'd use a geocoding service to convert city names to coordinates
-    const cityCoords: {[key: string]: {lat: number, lon: number}} = {
-      'new york': {lat: 40.7128, lon: -74.0060},
-      'paris': {lat: 48.8566, lon: 2.3522},
-      'miami': {lat: 25.7617, lon: -80.1918},
-      'denver': {lat: 39.7392, lon: -104.9903},
-      'chicago': {lat: 41.8781, lon: -87.6298},
-      'san francisco': {lat: 37.7749, lon: -122.4194},
-      'seattle': {lat: 47.6062, lon: -122.3321},
-      'london': {lat: 51.5074, lon: -0.1278},
-      'tokyo': {lat: 35.6762, lon: 139.6503},
-      'sydney': {lat: -33.8688, lon: 151.2093},
-      'las vegas': {lat: 36.1699, lon: -115.1398},
-      'philadelphia': {lat: 39.9526, lon: -75.1652},
-      'easton': {lat: 40.6918, lon: -75.2207}, // Easton, PA coordinates
-      'boston': {lat: 42.3601, lon: -71.0589},
-      'los angeles': {lat: 34.0522, lon: -118.2437},
-      'austin': {lat: 30.2672, lon: -97.7431},
-      'portland': {lat: 45.5152, lon: -122.6784},
-      'atlanta': {lat: 33.7490, lon: -84.3880},
-      'houston': {lat: 29.7604, lon: -95.3698},
-      'dallas': {lat: 32.7767, lon: -96.7970}
-    };
+    // Simple geocoding to convert city name to lat/lon
+    const geocodeUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=en&format=json`;
     
-    // Find city coordinates or use a default
-    const lowerCityName = cityName.toLowerCase();
+    const geocodeResponse = await fetch(geocodeUrl);
+    if (!geocodeResponse.ok) throw new Error('Geocoding failed');
     
-    let coords;
-    if (cityCoords[lowerCityName]) {
-      coords = cityCoords[lowerCityName];
-    } else {
-      // Use New York coordinates but preserve the original city name
-      console.log(`City "${cityName}" not found in coordinates database, using approximate location`);
-      coords = {lat: 40.7128, lon: -74.0060}; // Default to NYC coordinates
+    const geocodeData = await geocodeResponse.json();
+    
+    if (!geocodeData.results || geocodeData.results.length === 0) {
+      throw new Error(`Could not find coordinates for ${cityName}`);
     }
     
-    const weatherData = await fetchWeatherForCoords(coords.lat, coords.lon, cityName);
+    const { latitude, longitude, name } = geocodeData.results[0];
     
-    // Make sure the city name is preserved
-    if (weatherData.city !== cityName) {
-      weatherData.city = cityName;
-    }
-    
-    // Store in cache with city name as key
-    WEATHER_CACHE.set(cacheKey, {
-      data: weatherData,
-      timestamp: now
-    });
-    
-    return weatherData;
+    // Now fetch weather data using the coordinates
+    return await fetchWeatherForCoords(latitude, longitude, name || cityName);
   } catch (error) {
-    console.error(`Error fetching weather data for city ${cityName}:`, error);
+    console.error(`Error fetching weather for ${cityName}:`, error);
     throw error;
   }
 }; 

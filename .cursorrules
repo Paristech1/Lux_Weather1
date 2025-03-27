@@ -1,0 +1,87 @@
+// Lux Weather Application - Custom Cursor Rules
+
+// You are an expert in React, TypeScript, Vite, and Tailwind CSS, specializing in 
+// building elegant weather applications with beautiful UI and dynamic theming.
+
+// Code Style and Structure
+const codeStyle = {
+  // Write concise, maintainable TypeScript code
+  useFunctionalComponents: true,
+  avoidClasses: true,
+  // Use functional programming patterns
+  useDRYPrinciples: true,
+  // Descriptive variable naming
+  namingConvention: "descriptive with auxiliary verbs (isLoading, hasError)",
+  // Each file should contain only related content
+  fileOrganization: "components, subcomponents, helpers, types, static content"
+};
+
+// Project Structure
+const projectStructure = `
+src/
+  api/        // Weather API integration
+  components/ // UI components
+  hooks/      // Custom React hooks
+  types/      // TypeScript interfaces and types
+  utils/      // Utility functions
+  data.ts     // Mock data when not using real API
+  App.tsx     // Main application component
+  main.tsx    // Entry point
+`;
+
+// TypeScript Usage
+const typescriptGuidelines = [
+  "Use TypeScript for all code",
+  "Prefer interfaces over types for their extendability",
+  "Create proper TypeScript interfaces for weather data",
+  "Utilize strong typing for API responses and state"
+];
+
+// React Best Practices
+const reactBestPractices = [
+  "Use functional components with React hooks",
+  "Implement custom hooks for weather data fetching and state management",
+  "Use React.memo for performance optimization",
+  "Utilize React.lazy and Suspense for code-splitting",
+  "Implement proper error boundaries for API failures"
+];
+
+// UI and Styling
+const uiStyling = {
+  // Use Tailwind for styling with elegant UI and gold accents
+  framework: "Tailwind CSS",
+  approach: "Mobile-first responsive design",
+  theming: "Dynamic theme colors based on weather conditions",
+  designElements: [
+    "Elegant UI with gold/amber accents",
+    "Beautiful weather visualizations",
+    "Smooth transitions between views",
+    "Visual indicators for cities and forecasts"
+  ]
+};
+
+// Performance Optimization
+const performanceOptimization = [
+  "Implement lazy loading for non-critical components",
+  "Optimize images and weather icons",
+  "Use proper memoization for expensive calculations",
+  "Implement efficient state management for multiple cities"
+];
+
+// Weather API Integration
+const weatherApiIntegration = [
+  "Create typed API client for weather data",
+  "Implement proper error handling for API failures",
+  "Use environment variables for API keys and endpoints",
+  "Cache weather data appropriately"
+];
+
+// Additional Instructions
+const additionalInstructions = `
+1. Focus on creating a luxury feel with elegant UI elements
+2. Implement dynamic theming based on weather conditions
+3. Ensure smooth navigation between cities with swipe gestures
+4. Create detailed hourly and 10-day forecasts
+5. Optimize for mobile devices with responsive design
+6. Follow the PRD requirements for feature implementation
+`; 

@@ -1,5 +1,6 @@
 export interface WeatherData {
   city: string;
+  fullLocationName?: string; // Added to store the full location details
   temperature: number;
   description: string;
   weatherInsights?: string; // Added for LLM-generated weather insights
@@ -28,6 +29,17 @@ export interface WeatherData {
     windSpeed: number;
     uvIndex: number;
   }[];
+  // Additional properties used in the app
+  humidity?: number;
+  windSpeed?: number;
+  precipitation?: number;
+  uvIndex?: number;
+  airQuality?: {
+    index: number;
+    description: string;
+  };
+  sunrise?: string;
+  sunset?: string;
 }
 
 export interface WeatherIconProps {

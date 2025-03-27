@@ -1,5 +1,5 @@
 import React, { useState, useRef, TouchEvent, useEffect } from 'react';
-import { MapPin, Plus, ChevronLeft, ChevronRight, X, AlertCircle } from 'lucide-react';
+import { MapPin, Plus, ChevronLeft, ChevronRight, X, AlertCircle, Lightbulb } from 'lucide-react';
 import WeatherIcon from './components/WeatherIcon';
 import DayDetail from './components/DayDetail';
 import { WeatherData } from './types';
@@ -8,6 +8,18 @@ import { weatherDataAgent } from './api/llmProcessor';
 
 // Import the mock data for initial loading or fallback
 import { weatherData, parisWeather, newYorkWeather, miamiWeather, denverWeather, chicagoWeather, sanFranciscoWeather } from './data';
+
+// Add this before the App function
+const weatherConditions = [
+  "Sunny", 
+  "Partly Cloudy",
+  "Cloudy",
+  "Rainy",
+  "Thunderstorm",
+  "Snow",
+  "Foggy",
+  "Windy"
+];
 
 function App() {
   // State for weather data
@@ -77,6 +89,81 @@ function App() {
 
   // Add new state for custom city input
   const [customCityName, setCustomCityName] = useState<string>('');
+  const [searchResults, setSearchResults] = useState<{name: string, country: string, admin1: string, admin2: string, displayName: string}[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
+
+  // Function to search for cities
+  const searchCities = async (query: string) => {
+    if (!query.trim() || query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    
+    setIsSearching(true);
+    
+    try {
+      // Use Open-Meteo geocoding API to search for cities
+      const response = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=10&language=en&format=json`);
+      const data = await response.json();
+      
+      if (data.results && data.results.length > 0) {
+        // Format results with more detailed location info but no temperature
+        const formattedResults = data.results.map((result: any) => ({
+          name: result.name,
+          country: result.country,
+          admin1: result.admin1 || '', // State/Province/Region
+          admin2: result.admin2 || '', // County/District
+          displayName: formatLocationName(result)
+        }));
+        
+        setSearchResults(formattedResults);
+      } else {
+        setSearchResults([]);
+      }
+    } catch (error) {
+      console.error('Error searching for cities:', error);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+  
+  // Helper function to format location names properly
+  const formatLocationName = (location: any): string => {
+    let parts = [];
+    
+    // Always include the city name
+    parts.push(location.name);
+    
+    // Add state/province if available
+    if (location.admin1) {
+      parts.push(location.admin1);
+    }
+    
+    // Add country if available and not USA (for US cities, state is enough)
+    if (location.country && location.country !== 'United States') {
+      parts.push(location.country);
+    }
+    
+    return parts.join(', ');
+  };
+  
+  // Extract just the city name from a full location string
+  const extractCityName = (fullLocationName: string): string => {
+    // Return just the first part (the city name)
+    return fullLocationName.split(',')[0].trim();
+  };
+  
+  // Use debouncing for search to avoid too many API calls
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (customCityName.trim()) {
+        searchCities(customCityName);
+      }
+    }, 500); // Wait 500ms after typing stops
+    
+    return () => clearTimeout(timeoutId);
+  }, [customCityName]);
 
   // Initialize with real data on component mount
   useEffect(() => {
@@ -169,49 +256,163 @@ function App() {
     };
   };
 
-  // Handler for adding a new city
-  const addCity = async (cityName: string, temp: number = 70) => {
-    // Check if we've reached the maximum number of cities (5)
-    if (cities.length >= 5) {
-      setError("Maximum limit of 5 cities reached. Please remove a city before adding a new one.");
-      return;
-    }
-    
-    // Check if the city is already in the list
-    const existingCityIndex = cities.findIndex(city => city.city.toLowerCase() === cityName.toLowerCase());
-    if (existingCityIndex >= 0) {
-      setSelectedCity(existingCityIndex);
+  // Fix the addCity function to correctly map the city data to the required structure
+  const addCity = (cityName: string, displayName?: string) => {
+    // Check if we already have maximum cities
+    if (cities.length >= 5) return;
+
+    // Store the display name (full location) but use simple city name for display
+    const simpleCityName = extractCityName(cityName);
+    const fullLocationName = displayName || cityName;
+
+    // Check if the city already exists
+    const cityExists = cities.some(city => 
+      typeof city === 'string' 
+        ? city === fullLocationName 
+        : city.city.toLowerCase() === fullLocationName.toLowerCase()
+    );
+
+    if (cityExists) {
+      // If it does, select that city instead of adding it again
+      const cityIndex = cities.findIndex(city => 
+        typeof city === 'string' 
+          ? city === fullLocationName 
+          : city.city.toLowerCase() === fullLocationName.toLowerCase()
+      );
+      setSelectedCity(cityIndex);
       setShowCityDropdown(false);
+      setCustomCityName('');
+      setSearchResults([]);
       return;
     }
-    
-    // Show loading state
+
+    // Show loading
     setLoading(true);
+
+    // Create a proper WeatherData object for the new city
+    const fetchAndAddCity = async () => {
+      try {
+        // Try to fetch real data first - use full location for API but display simple name
+        const cityData = await fetchCityData(fullLocationName);
+        
+        // Override the city name to just the simple version
+        const cityDataWithSimpleName = {
+          ...cityData,
+          city: simpleCityName,
+          fullLocationName: fullLocationName // Store the full name for reference but don't display it
+        };
+        
+        // Update the cities array with real data
+        setCities(prev => [...prev, cityDataWithSimpleName]);
+        
+        // Select the newly added city
+        setSelectedCity(cities.length);
+      } catch (error) {
+        console.error(`Error adding city ${fullLocationName}:`, error);
+        
+        // If fetching real data fails, create mock data
+        const mockTemp = Math.floor(Math.random() * 50) + 50;
+        const mockDescription = weatherConditions[Math.floor(Math.random() * weatherConditions.length)];
+        
+        // Create mock data for the new city with all required properties
+        const newWeatherData: WeatherData = {
+          city: simpleCityName, // Just use the simple name for display
+          fullLocationName: fullLocationName, // Store the full location info
+          temperature: mockTemp,
+          description: mockDescription,
+          hourlyForecast: generateMockHourlyForecast(),
+          tenDayForecast: generateMockTenDayForecast(),
+          humidity: Math.floor(Math.random() * 40) + 40,
+          windSpeed: Math.floor(Math.random() * 20) + 5,
+          precipitation: Math.floor(Math.random() * 70),
+          uvIndex: Math.floor(Math.random() * 10) + 1,
+          airQuality: {
+            index: Math.floor(Math.random() * 150) + 30,
+            description: getAirQualityDescription(Math.floor(Math.random() * 150) + 30)
+          },
+          sunrise: "6:45 AM",
+          sunset: "7:30 PM"
+        };
+        
+        // Add the new data to cities
+        setCities(prev => [...prev, newWeatherData]);
+        
+        // Select the newly added city
+        setSelectedCity(cities.length);
+      } finally {
+        setShowCityDropdown(false);
+        setCustomCityName('');
+        setSearchResults([]);
+        setLoading(false);
+      }
+    };
     
-    try {
-      // Fetch city data (will use mock data if API limit reached)
-      const cityData = await fetchCityData(cityName);
+    fetchAndAddCity();
+  };
+
+  // Fix the helper function to generate mock hourly forecast
+  const generateMockHourlyForecast = () => {
+    const hourlyForecast = [];
+    const currentHour = new Date().getHours();
+    
+    for (let i = 0; i < 24; i++) {
+      const hour = (currentHour + i) % 24;
+      const hourLabel = hour === 0 ? "12 AM" : hour === 12 ? "12 PM" : hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
       
-      // Add the new city to the list
-      setCities([...cities, cityData]);
-      setSelectedCity(cities.length); // Select the newly added city
-    } catch (err: any) {
-      console.error(`Error adding city ${cityName}:`, err);
-      
-      // This should rarely happen now that fetchCityData handles errors
-      setError(`Failed to add ${cityName}. Using placeholder data.`);
-      
-      // Create a placeholder using the helper function
-      const fallbackData = getMockDataForCity(cityName);
-      
-      // Add the fallback data
-      setCities([...cities, fallbackData]);
-      setSelectedCity(cities.length);
-    } finally {
-      setLoading(false);
-      setShowCityDropdown(false);
-      setCustomCityName(''); // Reset custom city input
+      hourlyForecast.push({
+        hour: hourLabel,
+        temp: Math.floor(Math.random() * 15) + 60,
+        description: weatherConditions[Math.floor(Math.random() * weatherConditions.length)]
+      });
     }
+    
+    return hourlyForecast;
+  };
+
+  // Fix the helper function to generate mock 10-day forecast
+  const generateMockTenDayForecast = () => {
+    const forecast = [];
+    const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    const currentDay = new Date().getDay();
+    
+    for (let i = 0; i < 10; i++) {
+      const dayIndex = (currentDay + i) % 7;
+      const dayName = days[dayIndex];
+      const tempHigh = Math.floor(Math.random() * 20) + 65;
+      const tempLow = tempHigh - Math.floor(Math.random() * 15) - 5;
+      
+      forecast.push({
+        day: i === 0 ? "Today" : dayName,
+        high: tempHigh,
+        low: tempLow,
+        description: weatherConditions[Math.floor(Math.random() * weatherConditions.length)],
+        airQuality: {
+          index: Math.floor(Math.random() * 150) + 30,
+          description: getAirQualityDescription(Math.floor(Math.random() * 150) + 30)
+        },
+        feelsLike: Math.floor(Math.random() * 10) + tempHigh - 5,
+        windSpeed: Math.floor(Math.random() * 20) + 5,
+        uvIndex: Math.floor(Math.random() * 10) + 1,
+        hourlyDetails: Array(24).fill(0).map((_, idx) => ({
+          hour: idx === 0 ? "12 AM" : idx === 12 ? "12 PM" : idx < 12 ? `${idx} AM` : `${idx - 12} PM`,
+          temp: Math.floor(Math.random() * 15) + 60,
+          rainChance: Math.floor(Math.random() * 100),
+          humidity: Math.floor(Math.random() * 40) + 40
+        }))
+      });
+    }
+    
+    return forecast;
+  };
+
+  // Helper function to get air quality description
+  const getAirQualityDescription = (aqi: number) => {
+    if (aqi <= 50) return "Good";
+    if (aqi <= 100) return "Moderate";
+    if (aqi <= 150) return "Unhealthy for Sensitive Groups";
+    if (aqi <= 200) return "Unhealthy";
+    if (aqi <= 300) return "Very Unhealthy";
+    return "Hazardous";
   };
 
   // Handle custom city form submission
@@ -299,19 +500,21 @@ function App() {
   };
 
   // Function to determine rim color based on weather description
-  const determineRimColor = (description: string): { color: string, oscillate: boolean } => {
+  const determineRimColor = (description: string): { color: string, oscillate: boolean, cssClass: string } => {
     const lowerDesc = description.toLowerCase();
     
     if (lowerDesc.includes('sunny') || lowerDesc.includes('clear')) {
-      return { color: '#CFA94D', oscillate: false }; // Gold for sunny
+      return { color: '#CFA94D', oscillate: false, cssClass: '' }; // Gold for sunny
     } else if (lowerDesc.includes('partly cloudy')) {
-      return { color: '#CFA94D', oscillate: true }; // Oscillate between gold and gray
+      return { color: '#4ECDC4', oscillate: true, cssClass: 'oscillating-rim' }; // Oscillate between cyan and gray for partly cloudy
     } else if (lowerDesc.includes('cloudy')) {
-      return { color: '#888888', oscillate: false }; // Gray for cloudy
+      return { color: '#C0C0C0', oscillate: false, cssClass: 'silver-rim' }; // Silverish for cloudy
     } else if (lowerDesc.includes('rain')) {
-      return { color: '#4682B4', oscillate: false }; // Steel blue for rainy
+      return { color: '#4682B4', oscillate: false, cssClass: '' }; // Steel blue for rainy
+    } else if (lowerDesc.includes('snow') || lowerDesc.includes('ice') || lowerDesc.includes('sleet')) {
+      return { color: '#FFFFFF', oscillate: false, cssClass: 'snow-rim' }; // White for snow with animation
     } else {
-      return { color: '#CFA94D', oscillate: false }; // Default gold
+      return { color: '#CFA94D', oscillate: false, cssClass: '' }; // Default gold
     }
   };
 
@@ -323,10 +526,14 @@ function App() {
       ? cities[selectedCity].tenDayForecast[selectedDay].description || cities[selectedCity].description
       : cities[selectedCity].description;
     
-    const { color, oscillate } = determineRimColor(currentDescription);
+    const { color, oscillate, cssClass } = determineRimColor(currentDescription);
     setRimColor(color);
     setIsOscillating(oscillate);
+    setRimCssClass(cssClass);
   }, [selectedCity, selectedDay, cities]);
+
+  // Add state for rim CSS class
+  const [rimCssClass, setRimCssClass] = useState<string>('');
 
   // Effect to handle oscillation if needed
   useEffect(() => {
@@ -335,7 +542,8 @@ function App() {
     let colorToggle = false;
     const oscillationInterval = setInterval(() => {
       colorToggle = !colorToggle;
-      setRimColor(colorToggle ? '#CFA94D' : '#888888'); // Toggle between gold and gray
+      // Change to oscillate between cyan and gray for partly cloudy
+      setRimColor(colorToggle ? '#4ECDC4' : '#A9A9A9'); 
     }, 3000); // Change every 3 seconds
     
     return () => clearInterval(oscillationInterval);
@@ -353,10 +561,10 @@ function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#111] flex items-center justify-center p-4">
+    <div className="min-h-screen bg-[#111] flex items-center justify-center p-4 text-base">
       <div 
-        className={`w-[350px] min-h-[667px] bg-[#000] rounded-[30px] overflow-hidden relative shadow-2xl shadow-black/60 ${isOscillating ? 'oscillating-rim' : ''}`}
-        style={isOscillating ? {} : rimStyle}
+        className={`w-full max-w-[390px] min-h-[calc(100vh-2rem)] md:min-h-[667px] md:w-[350px] bg-[#000] rounded-[30px] overflow-hidden relative shadow-2xl shadow-black/60 ${rimCssClass}`}
+        style={rimCssClass ? {} : rimStyle}
       >
         {selectedDay !== null ? (
           <DayDetail 
@@ -364,13 +572,13 @@ function App() {
             onClose={() => setSelectedDay(null)} 
           />
         ) : (
-          <div className="p-8">
+          <div className="p-4 sm:p-6 md:p-8">
             {/* Swipeable Area */}
             <div
               ref={swipeableRef}
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
-              className="mb-6"
+              className="mb-6 relative"
             >
               {/* API Usage Indicator */}
               {isNearApiLimit() && (
@@ -380,264 +588,254 @@ function App() {
                 </div>
               )}
               
+              {/* Navigation Arrows - Positioned absolutely left and right */}
+              {selectedCity > 0 && (
+                <button 
+                  onClick={() => setSelectedCity(prev => prev - 1)}
+                  className="absolute left-0 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center bg-[#111] text-[#cfa94d] hover:bg-[#222] transition-colors z-10"
+                  aria-label="Previous city"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+              )}
+              
+              {selectedCity < cities.length - 1 && (
+                <button 
+                  onClick={() => setSelectedCity(prev => prev + 1)}
+                  className="absolute right-0 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center bg-[#111] text-[#cfa94d] hover:bg-[#222] transition-colors z-10"
+                  aria-label="Next city"
+                >
+                  <ChevronRight size={18} />
+                </button>
+              )}
+              
+              {/* Refresh Button - Positioned to mirror the "+" button */}
+              <button
+                onClick={() => refreshCityData(selectedCity)}
+                disabled={loading}
+                className="absolute top-4 w-8 h-8 left-0 rounded-full flex items-center justify-center bg-[#111] text-[#cfa94d] hover:bg-[#222] transition-colors z-10" 
+                aria-label="Refresh weather data"
+              >
+                {loading ? (
+                  <div className="w-3 h-3 border-2 border-[#cfa94d] border-t-transparent rounded-full animate-spin"></div>
+                ) : (
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 20C16.4183 20 20 16.4183 20 12C20 7.58172 16.4183 4 12 4C7.58172 4 4 7.58172 4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+                    <path d="M9 6L4 12L9 6Z" fill="currentColor"/>
+                    <path d="M9 6L4 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                    <path d="M4 12L10 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </button>
+
+              {/* Add city button positioned to balance with refresh button */}
+              <button
+                onClick={() => setShowCityDropdown(true)}
+                className="absolute right-0 top-4 w-8 h-8 rounded-full flex items-center justify-center bg-[#111] text-[#cfa94d] hover:bg-[#222] transition-colors z-10"
+                aria-label="Add city"
+              >
+                <Plus size={18} />
+              </button>
+              
               {/* City Selector with Remove Option */}
-              <div className="flex flex-col items-center mb-8">
-                {/* Add city button moved to the right corner absolutely positioned */}
-                <button
-                  onClick={() => setShowCityDropdown(true)}
-                  className="absolute top-8 right-8 text-[#cfa94d] hover:text-[#b8923f] transition-colors p-2"
-                  aria-label="Add city"
-                >
-                  <Plus size={24} />
-                </button>
-                
-                {/* Refresh Button - Moved to top left */}
-                <button
-                  onClick={() => refreshCityData(selectedCity)}
-                  disabled={loading}
-                  className="absolute top-8 left-8 w-10 h-10 rounded-full bg-[#cfa94d] flex items-center justify-center text-black"
-                  aria-label="Refresh weather data"
-                >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M21 2v6h-6"></path>
-                      <path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path>
-                      <path d="M3 22v-6h6"></path>
-                      <path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path>
-                    </svg>
-                  )}
-                </button>
-                
-                {/* Centered page indicator dots */}
-                <div className="flex gap-4 justify-center">
-                  {cities.map((_, index) => (
-                    <div key={index} className="relative group">
-                      <button
-                        onClick={() => setSelectedCity(index)}
-                        className={`w-2 h-2 rounded-full transition-colors ${
-                          selectedCity === index ? 'bg-[#cfa94d]' : 'bg-[#333]'
-                        }`}
-                        aria-label={`City ${index + 1}${selectedCity === index ? ' (current)' : ''}`}
-                      />
-                      {cities.length > 1 && (
+              <div className="flex flex-col items-center mb-6 md:mb-8">
+                {/* City Dropdown */}
+                {showCityDropdown && (
+                  <div className="absolute top-0 left-0 w-full h-full bg-black/90 z-20 flex items-center justify-center p-6">
+                    <div className="bg-[#111] w-full max-w-[280px] rounded-2xl p-4 border border-[#222]" style={{ borderColor: rimColor }}>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-playfair" style={{ color: rimColor }}>Select a City</h3>
                         <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeCity(index);
+                          onClick={() => {
+                            setShowCityDropdown(false);
+                            setCustomCityName('');
+                            setSearchResults([]);
                           }}
-                          className="absolute -top-2 -right-2 w-4 h-4 bg-[#333] rounded-full flex items-center justify-center text-[#cfa94d] opacity-0 group-hover:opacity-100 transition-opacity"
-                          aria-label={`Remove city ${index + 1}`}
+                          className="text-[#cfa94d] hover:text-[#b8923f]"
                         >
-                          <X size={8} />
+                          <X size={18} />
                         </button>
+                      </div>
+                      
+                      {/* Custom City Input */}
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        if (searchResults.length > 0) {
+                          // Pass both the display name and full location info
+                          addCity(searchResults[0].displayName, searchResults[0].displayName);
+                        } else if (customCityName.trim()) {
+                          addCity(customCityName.trim());
+                        }
+                      }} className="mb-4">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={customCityName}
+                            onChange={(e) => setCustomCityName(e.target.value)}
+                            placeholder={cities.length >= 5 ? "Maximum cities reached" : "Enter a city name"}
+                            className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-[#f2f0e6] placeholder:text-[#666] focus:outline-none focus:border-[#cfa94d]"
+                            disabled={cities.length >= 5}
+                          />
+                          <button
+                            type="submit"
+                            disabled={!customCityName.trim() || cities.length >= 5 || (searchResults.length === 0 && customCityName.length > 2)}
+                            className="bg-[#cfa94d] text-black px-3 py-2 rounded disabled:opacity-50"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </form>
+                      
+                      {/* Search Results */}
+                      {isSearching && (
+                        <div className="flex justify-center my-3">
+                          <div className="w-5 h-5 border-2 border-[#cfa94d] border-t-transparent rounded-full animate-spin"></div>
+                        </div>
                       )}
+                      
+                      {searchResults.length > 0 && (
+                        <div className="mb-4 space-y-1 max-h-[200px] overflow-y-auto">
+                          <p className="text-[#888] text-xs mb-1">Location results:</p>
+                          {searchResults.map((city, index) => (
+                            <button
+                              key={index}
+                              className="w-full text-left px-3 py-2 rounded transition-colors flex justify-between items-center hover:bg-[#222]"
+                              onClick={() => {
+                                if (cities.length < 5) {
+                                  // Pass both the display name and full location info
+                                  addCity(city.displayName, city.displayName);
+                                }
+                              }}
+                              disabled={cities.length >= 5}
+                            >
+                              <div className="text-[#f2f0e6]">{city.displayName}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {/* City Count Indicator */}
+                      <div className="mb-3 text-[#888] text-xs flex justify-between items-center">
+                        <span>Cities: {cities.length}/5</span>
+                        {cities.length >= 5 && (
+                          <span className="text-amber-500 flex items-center gap-1">
+                            <AlertCircle size={12} />
+                            Maximum reached
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Popular Cities */}
+                      <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                        <p className="text-[#888] text-xs mb-1">Popular cities:</p>
+                        {availableCities.map((city, index) => (
+                          <button
+                            key={index}
+                            className={`w-full text-left px-3 py-2 rounded transition-colors flex justify-between items-center ${
+                              cities.length >= 5 
+                                ? 'opacity-50 cursor-not-allowed bg-[#1a1a1a]' 
+                                : 'hover:bg-[#222]'
+                            }`}
+                            onClick={() => cities.length < 5 && addCity(city.name)}
+                            disabled={cities.length >= 5}
+                          >
+                            <span className="text-[#f2f0e6]">{city.name}</span>
+                            <span className="text-[#b8923f] temperature">{city.temp}°</span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  ))}
+                  </div>
+                )}
+
+                {/* Current Weather Overview */}
+                <div className="text-center mt-2">
+                  <div className="flex items-center justify-center gap-1 sm:gap-2 mx-auto mb-2">
+                    <h1 className="text-xl sm:text-2xl md:text-3xl font-playfair text-[#cfa94d]">
+                      {currentCity.city}
+                    </h1>
+                  </div>
+
+                  <p className="text-[#f2f0e6] text-sm md:text-base mb-2">{currentCity.description}</p>
+                  
+                  <div className="flex items-center justify-center">
+                    <div className="mr-4 flex-shrink-0">
+                      <WeatherIcon 
+                        type={getWeatherIconType(currentCity.description)} 
+                        size="large"
+                      />
+                    </div>
+                    <div className="text-7xl sm:text-8xl font-extralight text-[#f2f0e6] temperature">
+                      {currentCity.temperature}<span className="text-4xl align-top">°</span>
+                    </div>
+                  </div>
+                  
+                  {/* Weather insights from LLM if available */}
+                  {currentCity.weatherInsights && (
+                    <div className="flex items-center justify-center mt-2 mb-1 text-[#b8923f]">
+                      <Lightbulb size={14} className="mr-1 flex-shrink-0" />
+                      <p className="text-xs italic">{currentCity.weatherInsights}</p>
+                    </div>
+                  )}
                 </div>
               </div>
-
-              {/* City Dropdown */}
-              {showCityDropdown && (
-                <div className="absolute top-0 left-0 w-full h-full bg-black/90 z-10 flex items-center justify-center p-6">
-                  <div className="bg-[#111] w-full max-w-[280px] rounded-2xl p-4 border border-[#222]" style={{ borderColor: rimColor }}>
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-playfair" style={{ color: rimColor }}>Select a City</h3>
-                      <button 
-                        onClick={() => setShowCityDropdown(false)}
-                        className="text-[#cfa94d] hover:text-[#b8923f]"
-                      >
-                        <X size={18} />
-                      </button>
-                    </div>
-                    
-                    {/* Custom City Input */}
-                    <form onSubmit={handleCustomCitySubmit} className="mb-4">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={customCityName}
-                          onChange={(e) => setCustomCityName(e.target.value)}
-                          placeholder={cities.length >= 5 ? "Maximum cities reached" : "Enter a city name"}
-                          className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-[#f2f0e6] placeholder:text-[#666] focus:outline-none focus:border-[#cfa94d]"
-                          disabled={cities.length >= 5}
-                        />
-                        <button
-                          type="submit"
-                          disabled={!customCityName.trim() || cities.length >= 5}
-                          className="bg-[#cfa94d] text-black px-3 py-2 rounded disabled:opacity-50"
-                        >
-                          Add
-                        </button>
+              
+              {/* Hourly Forecast */}
+              <div className="mb-6 md:mb-8">
+                <div className="flex justify-between overflow-x-auto pb-2 no-scrollbar">
+                  {currentCity.hourlyForecast.map((hour: any, index: number) => (
+                    <div key={index} className="flex flex-col items-center mx-2 flex-shrink-0">
+                      <div className="text-[#f2f0e6] text-xs md:text-sm">{hour.hour}</div>
+                      <WeatherIcon 
+                        type={getWeatherIconType(hour.description)} 
+                        size="small"
+                        className="my-1"
+                      />
+                      <div className="text-[#b8923f] text-sm md:text-base temperature">
+                        {hour.temp}<span className="text-xs align-top">°</span>
                       </div>
-                    </form>
-                    
-                    {/* City Count Indicator */}
-                    <div className="mb-3 text-[#888] text-xs flex justify-between items-center">
-                      <span>Cities: {cities.length}/5</span>
-                      {cities.length >= 5 && (
-                        <span className="text-amber-500 flex items-center gap-1">
-                          <AlertCircle size={12} />
-                          Maximum reached
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                      {availableCities.map((city, index) => (
-                        <button
-                          key={index}
-                          className={`w-full text-left px-3 py-2 rounded transition-colors flex justify-between items-center ${
-                            cities.length >= 5 
-                              ? 'opacity-50 cursor-not-allowed bg-[#1a1a1a]' 
-                              : 'hover:bg-[#222]'
-                          }`}
-                          onClick={() => cities.length < 5 && addCity(city.name, city.temp)}
-                          disabled={cities.length >= 5}
-                        >
-                          <span className="text-[#f2f0e6]">{city.name}</span>
-                          <span className="text-[#b8923f] temperature">{city.temp}°</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Top Section */}
-              <div className="text-center relative">
-                {cities.length > 1 && (
-                  <>
-                    {selectedCity > 0 && (
-                      <button 
-                        onClick={() => setSelectedCity(prev => prev - 1)}
-                        className="absolute left-0 top-1/2 -translate-y-1/2 text-[#cfa94d] hover:text-[#b8923f] transition-colors"
-                        aria-label="Previous city"
-                      >
-                        <ChevronLeft size={24} />
-                      </button>
-                    )}
-                    {selectedCity < cities.length - 1 && (
-                      <button 
-                        onClick={() => setSelectedCity(prev => prev + 1)}
-                        className="absolute right-0 top-1/2 -translate-y-1/2 text-[#cfa94d] hover:text-[#b8923f] transition-colors"
-                        aria-label="Next city"
-                      >
-                        <ChevronRight size={24} />
-                      </button>
-                    )}
-                  </>
-                )}
-                
-                {/* Loading State */}
-                {loading && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-xl">
-                    <div className="w-8 h-8 border-4 border-[#cfa94d] border-t-transparent rounded-full animate-spin"></div>
-                  </div>
-                )}
-                
-                {/* Error Message */}
-                {error && (
-                  <div className="absolute bottom-0 left-0 right-0 bg-red-900/80 text-white text-xs p-2 rounded-b-xl">
-                    {error}
-                    <button 
-                      className="ml-2 text-white/80 hover:text-white"
-                      onClick={() => setError(null)}
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                )}
-
-                <div className="mb-8">
-                  <div className="flex items-center justify-center mb-1">
-                    <MapPin size={16} className="text-[#cfa94d] mr-1" />
-                    <h2 className="text-[#f2f0e6] font-playfair text-lg">{currentCity.city}</h2>
-                  </div>
-                  <p className="text-[#888]">{currentCity.description}</p>
-                </div>
-
-                <div className="mb-8 flex items-center justify-center">
-                  <div className="mr-4">
-                    <WeatherIcon type={getWeatherIconType(currentCity.description)} size="large" />
-                  </div>
-                  <div className="text-[#f2f0e6] temperature text-7xl font-playfair">{currentCity.temperature}°</div>
-                </div>
-                
-                {/* Weather Insights - Display LLM-generated summary if available */}
-                {currentCity.weatherInsights && (
-                  <div className="mb-6 text-center">
-                    <p className="text-[#b8923f] text-sm italic">{currentCity.weatherInsights}</p>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-5 gap-2 mb-8">
-                  {currentCity.hourlyForecast.map((hour: {
-                    hour: string;
-                    temp: number;
-                    description?: string;
-                  }, index: number) => (
-                    <div key={index} className="text-center">
-                      <div className="text-[#888] text-xs mb-1">{hour.hour}</div>
-                      <div className="flex justify-center mb-1">
-                        <WeatherIcon type={getWeatherIconType(hour.description)} size="small" />
-                      </div>
-                      <div className="text-[#f2f0e6] temperature text-sm">{hour.temp}°</div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-
+            
+            {/* 5-Day Forecast Header */}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-[#cfa94d] font-playfair text-base">5-DAY FORECAST</h2>
+              <div className="text-[#888] text-xs">
+                {selectedCity + 1}/{cities.length}
+              </div>
+            </div>
+            
             {/* 5-Day Forecast */}
             <div>
-              <h3 className="text-[#cfa94d] text-xs uppercase tracking-widest mb-3">5-Day Forecast</h3>
-              <div className="space-y-4">
-                {currentCity.tenDayForecast.slice(0, 5).map((day: {
-                  day: string;
-                  high: number;
-                  low: number;
-                  description?: string;
-                  insight?: string;
-                  airQuality: {
-                    index: number;
-                    description: string;
-                  };
-                  hourlyDetails: {
-                    hour: string;
-                    temp: number;
-                    rainChance: number;
-                    humidity: number;
-                  }[];
-                  feelsLike: number;
-                  windSpeed: number;
-                  uvIndex: number;
-                }, index: number) => (
-                  <button
+              <div className="space-y-2 md:space-y-3 overflow-y-auto max-h-[calc(100vh-24rem)] md:max-h-[280px] pr-1 custom-scrollbar">
+                {currentCity.tenDayForecast.slice(0, 5).map((day: any, index: number) => (
+                  <button 
                     key={index}
-                    className="w-full flex items-center justify-between hover:bg-[#111] p-1 rounded transition-colors"
                     onClick={() => setSelectedDay(index)}
+                    className="w-full flex items-center justify-between bg-black hover:bg-[#0f0f0f] transition-colors rounded-lg p-2 md:p-3 text-left"
                   >
-                    <div className="text-[#f2f0e6] font-medium text-left w-24">{day.day}</div>
-                    <div className="flex justify-center w-10">
-                      <WeatherIcon type={getWeatherIconType(day.description)} size="small" />
+                    <div className="w-1/4 md:w-1/3">
+                      <div className="text-[#f2f0e6] font-medium">{day.day}</div>
                     </div>
                     
-                    {/* Show LLM-generated insight if available */}
-                    {day.insight ? (
-                      <div className="text-[#888] text-xs text-left flex-1 mx-2 truncate">
-                        {day.insight}
+                    <div className="flex items-center justify-center w-1/3">
+                      <WeatherIcon 
+                        type={getWeatherIconType(day.description)} 
+                        size="small"
+                      />
+                    </div>
+                    
+                    <div className="w-1/4 md:w-1/3 text-right">
+                      <div className="text-[#b8923f] temperature flex items-center justify-end gap-2">
+                        <span className="text-[#666] text-xs md:text-sm">{day.low}°</span>
+                        <span className="text-[#f2f0e6] text-sm md:text-base">{day.high}°</span>
                       </div>
-                    ) : (
-                      <div className="text-[#888] text-xs text-left flex-1 mx-2">
+                      <div className="text-xs text-[#aaa]">
                         AQI: {day.airQuality.index} - {day.airQuality.description}
                       </div>
-                    )}
-                    
-                    <div className="flex space-x-3 text-right">
-                      <span className="text-[#888] temperature">{day.low}°</span>
-                      <span className="text-[#f2f0e6] temperature">{day.high}°</span>
                     </div>
                   </button>
                 ))}
