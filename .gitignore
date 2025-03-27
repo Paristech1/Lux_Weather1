@@ -35,3 +35,9 @@ dist-ssr
 config/keys.js
 **/*.pem
 **/*.key
+
+# Cursor rules files that cause Netlify deployment issues
+.cursorrules
+.bolt/
+awesome-cursorrules/
+cursor-rules/
