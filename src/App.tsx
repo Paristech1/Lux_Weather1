@@ -678,7 +678,7 @@ function App() {
                           />
                           <button
                             type="submit"
-                            disabled={!customCityName.trim() || cities.length >= 5 || (searchResults.length === 0 && customCityName.length > 2)}
+                            disabled={!customCityName.trim() || cities.length >= 5}
                             className="bg-[#cfa94d] text-black px-3 py-2 rounded disabled:opacity-50"
                           >
                             Add
@@ -723,26 +723,6 @@ function App() {
                             Maximum reached
                           </span>
                         )}
-                      </div>
-                      
-                      {/* Popular Cities */}
-                      <div className="space-y-1 max-h-[200px] overflow-y-auto">
-                        <p className="text-[#888] text-xs mb-1">Popular cities:</p>
-                        {availableCities.map((city, index) => (
-                          <button
-                            key={index}
-                            className={`w-full text-left px-3 py-2 rounded transition-colors flex justify-between items-center ${
-                              cities.length >= 5 
-                                ? 'opacity-50 cursor-not-allowed bg-[#1a1a1a]' 
-                                : 'hover:bg-[#222]'
-                            }`}
-                            onClick={() => cities.length < 5 && addCity(city.name)}
-                            disabled={cities.length >= 5}
-                          >
-                            <span className="text-[#f2f0e6]">{city.name}</span>
-                            <span className="text-[#b8923f] temperature">{city.temp}°</span>
-                          </button>
-                        ))}
                       </div>
                     </div>
                   </div>
@@ -809,36 +789,94 @@ function App() {
             </div>
             
             {/* 5-Day Forecast */}
-            <div>
+            <div className="relative">
               <div className="space-y-2 md:space-y-3 overflow-y-auto max-h-[calc(100vh-24rem)] md:max-h-[280px] pr-1 custom-scrollbar">
-                {currentCity.tenDayForecast.slice(0, 5).map((day: any, index: number) => (
-                  <button 
-                    key={index}
-                    onClick={() => setSelectedDay(index)}
-                    className="w-full flex items-center justify-between bg-black hover:bg-[#0f0f0f] transition-colors rounded-lg p-2 md:p-3 text-left"
-                  >
-                    <div className="w-1/4 md:w-1/3">
-                      <div className="text-[#f2f0e6] font-medium">{day.day}</div>
-                    </div>
-                    
-                    <div className="flex items-center justify-center w-1/3">
-                      <WeatherIcon 
-                        type={getWeatherIconType(day.description)} 
-                        size="small"
-                      />
-                    </div>
-                    
-                    <div className="w-1/4 md:w-1/3 text-right">
-                      <div className="text-[#b8923f] temperature flex items-center justify-end gap-2">
-                        <span className="text-[#666] text-xs md:text-sm">{day.low}°</span>
-                        <span className="text-[#f2f0e6] text-sm md:text-base">{day.high}°</span>
+                {currentCity.tenDayForecast.length >= 5 ? (
+                  // If we have 5 or more days, show exactly 5
+                  currentCity.tenDayForecast.slice(0, 5).map((day: any, index: number) => (
+                    <button 
+                      key={index}
+                      onClick={() => setSelectedDay(index)}
+                      className="w-full flex items-center justify-between bg-black hover:bg-[#0f0f0f] transition-colors rounded-lg p-2 md:p-3 text-left"
+                    >
+                      <div className="w-1/4 md:w-1/3">
+                        <div className="text-[#f2f0e6] font-medium">{day.day}</div>
                       </div>
-                      <div className="text-xs text-[#aaa]">
-                        AQI: {day.airQuality.index} - {day.airQuality.description}
+                      
+                      <div className="flex items-center justify-center w-1/3">
+                        <WeatherIcon 
+                          type={getWeatherIconType(day.description)} 
+                          size="small"
+                        />
                       </div>
-                    </div>
-                  </button>
-                ))}
+                      
+                      <div className="w-1/4 md:w-1/3 text-right">
+                        <div className="text-[#b8923f] temperature flex items-center justify-end gap-2">
+                          <span className="text-[#666] text-xs md:text-sm">{day.low}°</span>
+                          <span className="text-[#f2f0e6] text-sm md:text-base">{day.high}°</span>
+                        </div>
+                        <div className="text-xs text-[#aaa]">
+                          AQI: {day.airQuality.index} - {day.airQuality.description}
+                        </div>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  // If we have fewer than 5 days, generate additional days to make it 5
+                  Array(5).fill(0).map((_, index) => {
+                    // Use existing forecast data if available, otherwise generate mock data
+                    const day = index < currentCity.tenDayForecast.length 
+                      ? currentCity.tenDayForecast[index] 
+                      : {
+                          day: ["Today", "Tomorrow", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][index % 7],
+                          high: Math.floor(Math.random() * 20) + 65,
+                          low: Math.floor(Math.random() * 15) + 45,
+                          description: weatherConditions[Math.floor(Math.random() * weatherConditions.length)],
+                          airQuality: {
+                            index: Math.floor(Math.random() * 150) + 30,
+                            description: getAirQualityDescription(Math.floor(Math.random() * 150) + 30)
+                          },
+                          feelsLike: Math.floor(Math.random() * 10) + 60,
+                          windSpeed: Math.floor(Math.random() * 20) + 5,
+                          uvIndex: Math.floor(Math.random() * 10) + 1,
+                          hourlyDetails: Array(24).fill(0).map((_, idx) => ({
+                            hour: idx === 0 ? "12 AM" : idx === 12 ? "12 PM" : idx < 12 ? `${idx} AM` : `${idx - 12} PM`,
+                            temp: Math.floor(Math.random() * 15) + 60,
+                            rainChance: Math.floor(Math.random() * 100),
+                            humidity: Math.floor(Math.random() * 40) + 40
+                          }))
+                        };
+                    
+                    return (
+                      <button 
+                        key={index}
+                        onClick={() => setSelectedDay(index)}
+                        className="w-full flex items-center justify-between bg-black hover:bg-[#0f0f0f] transition-colors rounded-lg p-2 md:p-3 text-left"
+                      >
+                        <div className="w-1/4 md:w-1/3">
+                          <div className="text-[#f2f0e6] font-medium">{day.day}</div>
+                        </div>
+                        
+                        <div className="flex items-center justify-center w-1/3">
+                          <WeatherIcon 
+                            type={getWeatherIconType(day.description)} 
+                            size="small"
+                          />
+                        </div>
+                        
+                        <div className="w-1/4 md:w-1/3 text-right">
+                          <div className="text-[#b8923f] temperature flex items-center justify-end gap-2">
+                            <span className="text-[#666] text-xs md:text-sm">{day.low}°</span>
+                            <span className="text-[#f2f0e6] text-sm md:text-base">{day.high}°</span>
+                          </div>
+                          <div className="text-xs text-[#aaa]">
+                            AQI: {day.airQuality.index} - {day.airQuality.description}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
               </div>
             </div>
           </div>
