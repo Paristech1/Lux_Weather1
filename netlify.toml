@@ -5,6 +5,10 @@
 # Configure build environment
 [build.environment]
   NODE_VERSION = "18"
+  VITE_WEATHER_API_KEY = "pqwqiqqTBeljWL7yM8WKwQTgjuKha5Zb"
+  VITE_APP_ENV = "production"
+  VITE_API_ENDPOINT = "https://api.tomorrow.io/v4"
+  VITE_ENABLE_MOCK_DATA = "false"
 
 # Configure redirects for SPA
 [[redirects]]
